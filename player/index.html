@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AceStream Player</title>
+  <link rel="stylesheet" href="/vendor/video.js/video-js.min.css">
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body { margin: 0; background: #08090b; color: #f4f6f8; overflow: hidden; }
+    main { width: 100%; height: 100%; display: grid; place-items: center; }
+    .stream-picker { width: min(100% - 2rem, 760px); }
+    .hint { margin: 0 0 .75rem; color: #aeb7c2; }
+    form { display: flex; gap: .75rem; }
+    input { flex: 1; min-width: 0; padding: .8rem; border: 1px solid #46505d;
+      border-radius: .4rem; background: #191d23; color: inherit; font: inherit; }
+    button { padding: .8rem 1.4rem; border: 0; border-radius: .4rem;
+      background: #2f7df4; color: white; font: inherit; font-weight: 650; cursor: pointer; }
+    #cancel-change { display: none; background: #46505d; }
+    input:focus, button:focus { outline: 3px solid #8bb8ff; outline-offset: 2px; }
+    .video-js { display: none; width: 100%; height: 100%; }
+    #status { min-height: 1.5em; color: #f2c66d; }
+    body.has-stream main { display: block; }
+    body.has-stream .video-js { display: block; }
+    body.has-stream .stream-picker { display: none; }
+    body.choosing-stream .stream-picker { display: block; position: fixed; z-index: 11;
+      top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1rem;
+      border-radius: .6rem; background: rgb(16 18 22 / 92%); box-shadow: 0 1rem 4rem #000; }
+    body.has-stream.choosing-stream #cancel-change { display: block; }
+    .video-js .vjs-change-stream-control { width: auto; padding: 0 1em; }
+    .video-js .vjs-change-stream-control .vjs-icon-placeholder { display: none; }
+    .video-js .vjs-change-stream-control::after { content: 'Change stream'; white-space: nowrap; }
+    @media (max-width: 600px) { form { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="stream-picker">
+      <p class="hint">Paste a content ID, an acestream:// link, or an AceStream HTTP URL.</p>
+      <form id="stream-form">
+        <input id="stream-input" aria-label="AceStream content ID or URL"
+          placeholder="acestream://…" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Play</button>
+        <button id="cancel-change" type="button">Cancel</button>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <video id="video" class="video-js vjs-default-skin vjs-big-play-centered"
+      controls playsinline preload="auto"></video>
+  </main>
+
+  <script src="/vendor/video.js/video.min.js"></script>
+  <script>
+    const form = document.querySelector('#stream-form');
+    const input = document.querySelector('#stream-input');
+    const status = document.querySelector('#status');
+    const cancelChange = document.querySelector('#cancel-change');
+    const player = videojs('video', { fill: true, liveui: true });
+
+    const Button = videojs.getComponent('Button');
+    class ChangeStreamButton extends Button {
+      constructor(player, options) {
+        super(player, options);
+        this.controlText('Change stream');
+        this.addClass('vjs-change-stream-control');
+      }
+
+      handleClick() {
+        document.body.classList.add('choosing-stream');
+        input.focus();
+        input.select();
+      }
+    }
+    videojs.registerComponent('ChangeStreamButton', ChangeStreamButton);
+    player.getChild('controlBar').addChild('ChangeStreamButton', {}, 12);
+
+    function contentId(value) {
+      const text = value.trim();
+      const direct = text.match(/^[a-f\d]{40}$/i);
+      if (direct) return direct[0];
+
+      const aceLink = text.match(/^acestream:\/\/([a-f\d]{40})(?:[/?#]|$)/i);
+      if (aceLink) return aceLink[1];
+
+      try {
+        const id = new URL(text).searchParams.get('id');
+        if (id && /^[a-f\d]{40}$/i.test(id)) return id;
+      } catch (_) {}
+
+      throw new Error('Enter a 40-character AceStream content ID or a URL containing one.');
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const id = contentId(input.value);
+        status.textContent = 'Connecting to stream…';
+        player.src({
+          src: `/ace/manifest.m3u8?id=${encodeURIComponent(id)}`,
+          type: 'application/x-mpegURL'
+        });
+        await player.play();
+        document.body.classList.add('has-stream');
+        document.body.classList.remove('choosing-stream');
+      } catch (error) {
+        status.textContent = error.message || 'Unable to start playback.';
+      }
+    });
+
+    function dismissStreamPicker() {
+      document.body.classList.remove('choosing-stream');
+      player.focus();
+    }
+
+    cancelChange.addEventListener('click', dismissStreamPicker);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && document.body.classList.contains('choosing-stream')) {
+        dismissStreamPicker();
+      }
+    });
+
+    player.on('playing', () => { status.textContent = ''; });
+    player.on('error', () => {
+      const error = player.error();
+      status.textContent = error ? `Playback error: ${error.message}` : 'Playback failed.';
+    });
+  </script>
+</body>
+</html>
