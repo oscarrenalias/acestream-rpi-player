@@ -22,6 +22,11 @@ services:
       binfmt:
         condition: service_completed_successfully
 
+    # Keep the engine API directly reachable for diagnostics and clients that
+    # need to bypass nginx. Normal player and playlist traffic uses :8080.
+    ports:
+      - "6878:6878"
+
     environment:
       ALLOW_REMOTE_ACCESS: "yes"
 
