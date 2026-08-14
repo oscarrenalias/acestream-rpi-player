@@ -55,7 +55,10 @@
     .event-title { margin: 0 0 .25rem; font-weight: 650; }
     .event-meta { margin: 0 0 .6rem; color: #aeb7c2; font-size: .9rem; }
     .event-streams { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .event-streams button { padding: .45rem .75rem; }
+    .event-stream { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+    .event-stream button { padding: .45rem .75rem; }
+    .event-stream .copy-vlc-link { padding: .3rem .45rem; background: #303844;
+      font-size: .78rem; font-weight: 550; }
     #stream-loading { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
       background: rgb(0 0 0 / 58%); }
     #stream-loading[hidden] { display: none; }
@@ -199,6 +202,33 @@
       }).format(date);
     }
 
+    function vlcLink(id) {
+      return `${window.location.origin}/ace/getstream?id=${encodeURIComponent(id)}`;
+    }
+
+    async function copyVlcLink(id) {
+      const link = vlcLink(id);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(link);
+        } else {
+          const clipboardFallback = document.createElement('textarea');
+          clipboardFallback.value = link;
+          clipboardFallback.setAttribute('readonly', '');
+          clipboardFallback.style.cssText = 'position:fixed; opacity:0;';
+          document.body.append(clipboardFallback);
+          clipboardFallback.select();
+          const copied = document.execCommand('copy');
+          clipboardFallback.remove();
+          if (!copied) throw new Error('Copy was not permitted.');
+        }
+        eventListStatus.textContent = 'VLC link copied to the clipboard.';
+      } catch (error) {
+        window.prompt('Copy this VLC link:', link);
+        eventListStatus.textContent = 'Select and copy the VLC link shown in the prompt.';
+      }
+    }
+
     function renderEvents() {
       const selectedCategory = eventCategory.value;
       eventListContent.replaceChildren();
@@ -221,14 +251,24 @@
         const streams = document.createElement('div');
         streams.className = 'event-streams';
         event.content_ids.forEach((id, index) => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = event.content_ids.length === 1 ? 'Play' : `Stream ${index + 1}`;
-          button.addEventListener('click', async () => {
+          const stream = document.createElement('div');
+          stream.className = 'event-stream';
+          const playButton = document.createElement('button');
+          playButton.type = 'button';
+          playButton.textContent = event.content_ids.length === 1 ? 'Play' : `Play stream ${index + 1}`;
+          playButton.addEventListener('click', async () => {
             try { await playContentId(id); }
             catch (error) { eventListStatus.textContent = error.message || 'Unable to start playback.'; }
           });
-          streams.append(button);
+          const copyButton = document.createElement('button');
+          copyButton.type = 'button';
+          copyButton.className = 'copy-vlc-link';
+          copyButton.textContent = 'VLC';
+          copyButton.title = 'Copy VLC link';
+          copyButton.setAttribute('aria-label', 'Copy VLC link');
+          copyButton.addEventListener('click', () => copyVlcLink(id));
+          stream.append(playButton, copyButton);
+          streams.append(stream);
         });
         item.append(title, meta, streams);
         eventListContent.append(item);
