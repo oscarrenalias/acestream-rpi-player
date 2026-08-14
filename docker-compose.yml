@@ -22,15 +22,22 @@ services:
       binfmt:
         condition: service_completed_successfully
 
-    ports:
-      - "6878:6878"
-
     environment:
       ALLOW_REMOTE_ACCESS: "yes"
 
     restart: unless-stopped
 
     stop_grace_period: 20s
+
+  catalog:
+    image: ghcr.io/oscarrenalias/acestream-rpi-player-catalog:latest
+    container_name: acestream-catalog
+
+    volumes:
+      - acestream-catalog:/data
+      - ./catalog/config.yaml:/app/catalog/config.yaml:ro
+
+    restart: unless-stopped
 
   player:
     image: ghcr.io/oscarrenalias/acestream-rpi-player:latest
@@ -39,8 +46,13 @@ services:
     depends_on:
       acestream:
         condition: service_started
+      catalog:
+        condition: service_started
 
     ports:
       - "8080:80"
 
     restart: unless-stopped
+
+volumes:
+  acestream-catalog:

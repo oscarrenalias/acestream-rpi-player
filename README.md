@@ -1,8 +1,8 @@
 # AceStream web player
 
-A small browser-based player for an AceStream engine running with Docker
-Compose. The web interface is available on port `8080` and proxies streams from
-the engine on port `6878`.
+A small browser-based player and event catalog for an AceStream engine running
+with Docker Compose. The public web interface, catalog API, playlist, and
+stream proxy are all available through port `8080`.
 
 ## Requirements
 
@@ -58,6 +58,14 @@ sudo docker compose ps
 ```
 
 The player will now start automatically after Docker and the network are ready.
+
+The catalog is available through the same player origin:
+
+```text
+http://raspberrypi.local:8080/playlist.m3u
+http://raspberrypi.local:8080/catalog/api/events
+http://raspberrypi.local:8080/catalog/api/status
+```
 
 The player image is built for AMD64 and ARM64 by GitHub Actions and published
 to `ghcr.io/oscarrenalias/acestream-rpi-player`. The workflow publishes

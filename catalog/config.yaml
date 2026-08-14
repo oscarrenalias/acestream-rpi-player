@@ -1,0 +1,99 @@
+# Event filters for the catalog.
+#
+# Entries are case-insensitive substrings matched against each event's title,
+# category, and full RSS description. Matching events are skipped before their
+# detail pages are fetched.
+ignore:
+  - baseball
+  - ice hockey
+  - cricket
+  - atp challenger
+  - rugby
+  - synchronized swimming
+  - weightlifting
+  - aussie rules
+  - golf
+  - beach volleyball
+  - curling
+  - mma
+  - climbing
+  - gymnastics
+  - Basketball. 3x3
+  - Basketball. Mexico.
+  - Football. Belarus.
+  - Football. Uzbekistan.
+  - Kazakhstan
+  - Football. ASEAN
+  - Basketball. WNBA
+  - Football. Israel.
+  - Football. Colombia.
+  - Football. Argentina.
+  - Racing. Speedway
+  - Football. Australia.
+  - Football. Sweden.
+  - Football. Portugal.
+  - Football. Germany. 3 Bundesliga
+  - Football. China.
+  - Football. Germany. 2 Bundesliga
+  - Football. Austria. 2. Liga
+  - Football. South Africa. PSL
+  - Football. Brazil.
+  - Football. Belarus.
+  - Billiard
+  - Football. Bosnia and Herzegovina.
+  - Football. Czech Republic.
+  - Football. Ecuador.
+  - Football. Paraguay.
+  - Football. Chile.
+  - judo
+  - Football. Romania.
+  - Football. Turkey.
+  - Football. France. Ligue 2
+  - Football. Portugal. Liga 3
+  - Football. Ukraine.
+  - Football. Saudi Arabia.
+  - Football. Japan.
+  - Football. South Korea.
+  - Football. Hungary.
+  - Football. Poland.
+  - Football. Denmark.
+  - Football. Finland.
+  - Football. USA.
+  - Football. Russia.
+  - Football. OFC Champions League
+  - Billiard
+  - Basketball. Women.
+  - volleyball
+  - vietnam
+  - philippines
+  - nascar
+  - Handball. Women.
+  - U-16
+  - Football. Croatia.
+  - table tennis
+  - Football. Norway.
+  - Football. Malta.
+  - Football. Estonia.
+  - Futsal
+  - Football. Slovenia.
+
+# Verify TLS certificates when retrieving event-detail pages. The current
+# LiveTV event host presents an incomplete/untrusted certificate chain, so this
+# is disabled explicitly for that source. Keep this enabled for trusted hosts.
+event_requests:
+  verify_tls: false
+
+# A discovery refresh only downloads and filters the RSS feed. A stream refresh
+# fetches detail pages only for events in the active/upcoming time window.
+refresh:
+  discovery_interval_seconds: 3600
+  stream_interval_seconds: 300
+  stream_lookback_hours: 2
+  stream_window_hours: 24
+  retention_hours: 12
+
+# URLs emitted in playlist.m3u. {base_url} is the public URL used to request
+# the playlist (normally the nginx player on port 8080), while {content_id} is
+# replaced for every playlist entry.
+playlist:
+  stream_url_template: "{base_url}/ace/getstream?id={content_id}"

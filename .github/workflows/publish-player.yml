@@ -1,4 +1,4 @@
-name: Build and publish player image
+name: Build and publish images
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
       - "v*"
     paths:
       - "player/**"
+      - "catalog/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
       - ".github/workflows/publish-player.yml"
   workflow_dispatch:
 
@@ -19,12 +23,21 @@ concurrency:
   group: publish-player-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: player
+            context: ./player
+            file: ./player/Dockerfile
+            image_suffix: ""
+          - name: catalog
+            context: .
+            file: ./catalog/Dockerfile
+            image_suffix: "-catalog"
 
     steps:
       - name: Check out repository
@@ -47,7 +60,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
@@ -58,11 +71,11 @@ jobs:
       - name: Build and publish image
         uses: docker/build-push-action@v6
         with:
-          context: ./player
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
