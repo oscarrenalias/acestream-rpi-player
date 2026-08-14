@@ -33,9 +33,7 @@ services:
     stop_grace_period: 20s
 
   player:
-    build:
-      context: ./player
-    image: acestream-web-player:local
+    image: ghcr.io/oscarrenalias/acestream-rpi-player:latest
     container_name: acestream-player
 
     depends_on:
