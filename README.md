@@ -34,6 +34,30 @@ Open `http://raspberrypi.local:8080/` in a browser. To stop the application:
 docker compose down
 ```
 
+The player can open a current stream from **Event list**, available on the
+start screen and in the player controls. The list shows only catalog events
+with at least one resolved stream; the direct AceStream ID/URL input remains
+available for manual playback.
+
+## Test player changes locally
+
+The local Compose override builds the player from the current checkout, while
+leaving the AceStream engine and catalog running. After changing files under
+`player/`, rebuild and replace only that container:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --detach --build --no-deps --force-recreate player
+```
+
+Then refresh `http://raspberrypi.local:8080/` (a hard refresh may be needed).
+This does not pull or publish an image, and it does not affect the catalog
+database. Return to the published player image with:
+
+```bash
+docker compose pull player
+docker compose up --detach --no-deps --force-recreate player
+```
+
 ## Install as a system service
 
 The included [`acestream.service`](./acestream.service) expects the project to

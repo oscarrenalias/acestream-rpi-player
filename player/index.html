@@ -19,6 +19,7 @@
     button { padding: .8rem 1.4rem; border: 0; border-radius: .4rem;
       background: #2f7df4; color: white; font: inherit; font-weight: 650; cursor: pointer; }
     #cancel-change { display: none; background: #46505d; }
+    .picker-actions { display: flex; gap: .75rem; }
     input:focus, button:focus { outline: 3px solid #8bb8ff; outline-offset: 2px; }
     .video-js { display: none; width: 100%; height: 100%; }
     #status { min-height: 1.5em; color: #f2c66d; }
@@ -32,18 +33,52 @@
     .video-js .vjs-change-stream-control { width: auto; padding: 0 1em; }
     .video-js .vjs-change-stream-control .vjs-icon-placeholder { display: none; }
     .video-js .vjs-change-stream-control::after { content: 'Change stream'; white-space: nowrap; }
-    @media (max-width: 600px) { form { flex-direction: column; } }
+    .video-js .vjs-event-list-control { width: auto; padding: 0 1em; }
+    .video-js .vjs-event-list-control .vjs-icon-placeholder { display: none; }
+    .video-js .vjs-event-list-control::after { content: 'Event list'; white-space: nowrap; }
+    #event-list { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center;
+      padding: 1rem; background: rgb(0 0 0 / 66%); }
+    #event-list[hidden] { display: none; }
+    .event-dialog { width: min(100%, 760px); max-height: min(80vh, 720px); display: flex;
+      flex-direction: column; border: 1px solid #46505d; border-radius: .6rem;
+      background: #101216; box-shadow: 0 1rem 4rem #000; }
+    .event-dialog-header { display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; padding: 1rem 1rem .75rem; }
+    .event-dialog-header h2 { margin: 0; font-size: 1.1rem; }
+    .event-dialog-header button { padding: .45rem .75rem; background: #46505d; }
+    .event-filters { padding: 0 1rem .75rem; }
+    select { width: 100%; padding: .65rem; border: 1px solid #46505d; border-radius: .4rem;
+      background: #191d23; color: inherit; font: inherit; }
+    #event-list-status { min-height: 1.5em; margin: 0; padding: 0 1rem .75rem; color: #aeb7c2; }
+    #event-list-content { overflow-y: auto; padding: 0 1rem 1rem; }
+    .event-item { padding: .85rem 0; border-top: 1px solid #2c333d; }
+    .event-title { margin: 0 0 .25rem; font-weight: 650; }
+    .event-meta { margin: 0 0 .6rem; color: #aeb7c2; font-size: .9rem; }
+    .event-streams { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .event-streams button { padding: .45rem .75rem; }
+    #stream-loading { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
+      background: rgb(0 0 0 / 58%); }
+    #stream-loading[hidden] { display: none; }
+    .loading-message { display: flex; align-items: center; gap: .8rem; padding: 1rem 1.25rem;
+      border-radius: .6rem; background: #101216; box-shadow: 0 1rem 4rem #000; font-weight: 650; }
+    .spinner { width: 1.35rem; height: 1.35rem; border: 3px solid #6d7887;
+      border-top-color: #8bb8ff; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 600px) { form, .picker-actions { flex-direction: column; } }
   </style>
 </head>
 <body>
   <main>
     <section class="stream-picker">
-      <p class="hint">Paste a content ID, an acestream:// link, or an AceStream HTTP URL.</p>
+      <p class="hint">Choose an available event, or paste a content ID, an acestream:// link, or an AceStream HTTP URL.</p>
       <form id="stream-form">
         <input id="stream-input" aria-label="AceStream content ID or URL"
           placeholder="acestream://…" autocomplete="off" spellcheck="false" required>
-        <button type="submit">Play</button>
-        <button id="cancel-change" type="button">Cancel</button>
+        <div class="picker-actions">
+          <button type="submit">Play</button>
+          <button id="show-events" type="button">Event list</button>
+          <button id="cancel-change" type="button">Cancel</button>
+        </div>
       </form>
       <p id="status" role="status" aria-live="polite"></p>
     </section>
@@ -52,13 +87,41 @@
       controls playsinline preload="auto"></video>
   </main>
 
+  <section id="event-list" hidden aria-labelledby="event-list-title">
+    <div class="event-dialog" role="dialog" aria-modal="true">
+      <header class="event-dialog-header">
+        <h2 id="event-list-title">Available streams</h2>
+        <button id="close-events" type="button" aria-label="Close event list">Close</button>
+      </header>
+      <div class="event-filters">
+        <label for="event-category">Category</label>
+        <select id="event-category"><option value="">All categories</option></select>
+      </div>
+      <p id="event-list-status" role="status" aria-live="polite"></p>
+      <div id="event-list-content"></div>
+    </div>
+  </section>
+
+  <div id="stream-loading" hidden role="status" aria-live="polite">
+    <div class="loading-message"><span class="spinner" aria-hidden="true"></span>Loading stream…</div>
+  </div>
+
   <script src="/vendor/video.js/video.min.js"></script>
   <script>
     const form = document.querySelector('#stream-form');
     const input = document.querySelector('#stream-input');
     const status = document.querySelector('#status');
     const cancelChange = document.querySelector('#cancel-change');
+    const showEvents = document.querySelector('#show-events');
+    const eventList = document.querySelector('#event-list');
+    const closeEvents = document.querySelector('#close-events');
+    const eventCategory = document.querySelector('#event-category');
+    const eventListStatus = document.querySelector('#event-list-status');
+    const eventListContent = document.querySelector('#event-list-content');
+    const streamLoading = document.querySelector('#stream-loading');
     const player = videojs('video', { fill: true, liveui: true });
+    let events = [];
+    let eventRefreshTimer;
 
     const Button = videojs.getComponent('Button');
     class ChangeStreamButton extends Button {
@@ -77,6 +140,18 @@
     videojs.registerComponent('ChangeStreamButton', ChangeStreamButton);
     player.getChild('controlBar').addChild('ChangeStreamButton', {}, 12);
 
+    class EventListButton extends Button {
+      constructor(player, options) {
+        super(player, options);
+        this.controlText('Event list');
+        this.addClass('vjs-event-list-control');
+      }
+
+      handleClick() { openEventList(); }
+    }
+    videojs.registerComponent('EventListButton', EventListButton);
+    player.getChild('controlBar').addChild('EventListButton', {}, 12);
+
     function contentId(value) {
       const text = value.trim();
       const direct = text.match(/^[a-f\d]{40}$/i);
@@ -93,11 +168,10 @@
       throw new Error('Enter a 40-character AceStream content ID or a URL containing one.');
     }
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
+    async function playContentId(id) {
+      status.textContent = 'Connecting to stream…';
+      streamLoading.hidden = false;
       try {
-        const id = contentId(input.value);
-        status.textContent = 'Connecting to stream…';
         player.src({
           src: `/ace/manifest.m3u8?id=${encodeURIComponent(id)}`,
           type: 'application/x-mpegURL'
@@ -105,10 +179,101 @@
         await player.play();
         document.body.classList.add('has-stream');
         document.body.classList.remove('choosing-stream');
+        closeEventList();
       } catch (error) {
-        status.textContent = error.message || 'Unable to start playback.';
+        streamLoading.hidden = true;
+        throw error;
       }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try { await playContentId(contentId(input.value)); }
+      catch (error) { status.textContent = error.message || 'Unable to start playback.'; }
     });
+
+    function eventDate(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      }).format(date);
+    }
+
+    function renderEvents() {
+      const selectedCategory = eventCategory.value;
+      eventListContent.replaceChildren();
+      const playableEvents = events.filter((event) =>
+        (!selectedCategory || event.category === selectedCategory) && event.content_ids?.length);
+      if (!playableEvents.length) {
+        eventListStatus.textContent = events.length ? 'No available streams in this category.' : 'No streams are available yet.';
+        return;
+      }
+      eventListStatus.textContent = `${playableEvents.length} event${playableEvents.length === 1 ? '' : 's'} available`;
+      for (const event of playableEvents) {
+        const item = document.createElement('article');
+        item.className = 'event-item';
+        const title = document.createElement('p');
+        title.className = 'event-title';
+        title.textContent = `[${event.category}] ${event.title}`;
+        const meta = document.createElement('p');
+        meta.className = 'event-meta';
+        meta.textContent = [event.description, eventDate(event.starts_at)].filter(Boolean).join(' — ');
+        const streams = document.createElement('div');
+        streams.className = 'event-streams';
+        event.content_ids.forEach((id, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = event.content_ids.length === 1 ? 'Play' : `Stream ${index + 1}`;
+          button.addEventListener('click', async () => {
+            try { await playContentId(id); }
+            catch (error) { eventListStatus.textContent = error.message || 'Unable to start playback.'; }
+          });
+          streams.append(button);
+        });
+        item.append(title, meta, streams);
+        eventListContent.append(item);
+      }
+    }
+
+    async function loadEvents() {
+      eventListStatus.textContent = events.length ? 'Refreshing streams…' : 'Loading streams…';
+      try {
+        const response = await fetch('/catalog/api/events', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Catalog request failed (${response.status}).`);
+        const data = await response.json();
+        events = Array.isArray(data) ? data : data.events || [];
+        const categories = [...new Set(events
+          .filter((event) => event.content_ids?.length)
+          .map((event) => event.category)
+          .filter(Boolean))].sort();
+        const currentCategory = eventCategory.value;
+        eventCategory.replaceChildren(new Option('All categories', ''));
+        categories.forEach((category) => eventCategory.add(new Option(category, category)));
+        eventCategory.value = categories.includes(currentCategory) ? currentCategory : '';
+        renderEvents();
+      } catch (error) {
+        eventListStatus.textContent = error.message || 'Unable to load available streams.';
+      }
+    }
+
+    function openEventList() {
+      eventList.hidden = false;
+      closeEvents.focus();
+      loadEvents();
+      if (!eventRefreshTimer) eventRefreshTimer = window.setInterval(loadEvents, 60_000);
+    }
+
+    function closeEventList() {
+      eventList.hidden = true;
+      if (eventRefreshTimer) {
+        window.clearInterval(eventRefreshTimer);
+        eventRefreshTimer = undefined;
+      }
+    }
+
+    showEvents.addEventListener('click', openEventList);
+    closeEvents.addEventListener('click', closeEventList);
+    eventCategory.addEventListener('change', renderEvents);
 
     function dismissStreamPicker() {
       document.body.classList.remove('choosing-stream');
@@ -117,13 +282,17 @@
 
     cancelChange.addEventListener('click', dismissStreamPicker);
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && document.body.classList.contains('choosing-stream')) {
-        dismissStreamPicker();
-      }
+      if (event.key !== 'Escape') return;
+      if (!eventList.hidden) closeEventList();
+      else if (document.body.classList.contains('choosing-stream')) dismissStreamPicker();
     });
 
-    player.on('playing', () => { status.textContent = ''; });
+    player.on('playing', () => {
+      status.textContent = '';
+      streamLoading.hidden = true;
+    });
     player.on('error', () => {
+      streamLoading.hidden = true;
       const error = player.error();
       status.textContent = error ? `Playback error: ${error.message}` : 'Playback failed.';
     });
