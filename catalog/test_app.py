@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +17,7 @@ from catalog.app import (
     load_refresh_settings,
     parse_feed,
     playlist,
+    playlist_title,
     process_events,
     resolve_active_events,
 )
@@ -67,8 +70,42 @@ class CatalogTests(unittest.TestCase):
                 "{base_url}/ace/getstream?id={content_id}",
                 "http://player:8080",
             )
-        self.assertIn('group-title="Athletics",European Championship', rendered)
+        self.assertIn('group-title="Athletics",[Athletics] European Championship', rendered)
         self.assertIn(f"http://player:8080/ace/getstream?id={STREAM_ID}", rendered)
+
+    def test_playlist_title_adds_category_and_description_detail(self):
+        self.assertEqual(
+            playlist_title(
+                {
+                    "title": "ATP/WTA, Cincinnati",
+                    "category": "Tennis",
+                    "description": "Tennis. ATP/WTA Tour",
+                }
+            ),
+            "[Tennis] ATP/WTA, Cincinnati — ATP/WTA Tour",
+        )
+
+    def test_existing_database_is_migrated_with_description(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "catalog.db"
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute(
+                    """
+                    CREATE TABLE events (
+                        id INTEGER PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        event_url TEXT NOT NULL UNIQUE,
+                        category TEXT NOT NULL,
+                        starts_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_checked_at TEXT
+                    )
+                    """
+                )
+            Catalog(database)
+            with closing(sqlite3.connect(database)) as connection:
+                columns = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
+        self.assertIn("description", columns)
 
     def test_processing_calls_resolver_and_persists_empty_results(self):
         event = parse_feed(FEED)[0]

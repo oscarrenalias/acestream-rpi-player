@@ -63,6 +63,12 @@ playlist:
 For a standalone service exposed directly on port 8090, replace `{base_url}`
 with the reachable player/engine URL you intend clients to use.
 
+M3U labels include the top-level category and the remaining RSS classification:
+
+```text
+[Tennis] ATP/WTA, Cincinnati — ATP/WTA Tour
+```
+
 Configuration uses `FEED_URL`, `DATABASE_PATH`, `HOST`, `PORT`, `LOG_LEVEL`,
 and `MAX_EVENTS`. `--max-events` overrides the environment value and is for
 small test discoveries only. At `INFO` level the service logs discovery,

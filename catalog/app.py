@@ -194,6 +194,7 @@ class Catalog:
                     title TEXT NOT NULL,
                     event_url TEXT NOT NULL UNIQUE,
                     category TEXT NOT NULL,
+                    description TEXT NOT NULL,
                     starts_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_checked_at TEXT
@@ -217,21 +218,31 @@ class Catalog:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(events)")}
             if "last_checked_at" not in columns:
                 connection.execute("ALTER TABLE events ADD COLUMN last_checked_at TEXT")
+            if "description" not in columns:
+                connection.execute("ALTER TABLE events ADD COLUMN description TEXT NOT NULL DEFAULT ''")
 
     def upsert_event(self, event: Mapping[str, str]) -> None:
         now = datetime.now().astimezone().isoformat()
         with closing(self.connect()) as connection, connection:
             connection.execute(
                 """
-                INSERT INTO events(title, event_url, category, starts_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO events(title, event_url, category, description, starts_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_url) DO UPDATE SET
                     title=excluded.title,
                     category=excluded.category,
+                    description=excluded.description,
                     starts_at=excluded.starts_at,
                     updated_at=excluded.updated_at
                 """,
-                (event["title"], event["link"], event["category"], event["starts_at"], now),
+                (
+                    event["title"],
+                    event["link"],
+                    event["category"],
+                    event["description"],
+                    event["starts_at"],
+                    now,
+                ),
             )
 
     def set_streams(self, event_url: str, stream_ids: Iterable[str]) -> None:
@@ -259,7 +270,7 @@ class Catalog:
     def events_for_resolution(self, start: datetime, end: datetime) -> list[Event]:
         with closing(self.connect()) as connection:
             rows = connection.execute(
-                "SELECT title, event_url, category, starts_at FROM events ORDER BY starts_at, title"
+                "SELECT title, event_url, category, description, starts_at FROM events ORDER BY starts_at, title"
             ).fetchall()
         events = []
         for row in rows:
@@ -270,6 +281,7 @@ class Catalog:
                         "title": row["title"],
                         "link": row["event_url"],
                         "category": row["category"],
+                        "description": row["description"],
                         "starts_at": row["starts_at"],
                     }
                 )
@@ -290,7 +302,7 @@ class Catalog:
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT e.id, e.title, e.event_url, e.category, e.starts_at,
+                SELECT e.id, e.title, e.event_url, e.category, e.description, e.starts_at,
                        e.last_checked_at, s.content_id
                 FROM events e LEFT JOIN streams s ON s.event_id = e.id
                 ORDER BY e.starts_at, e.title, s.content_id
@@ -308,6 +320,7 @@ class Catalog:
                     "title": row["title"],
                     "link": row["event_url"],
                     "category": row["category"],
+                    "description": row["description"],
                     "starts_at": row["starts_at"],
                     "last_checked_at": row["last_checked_at"],
                     "content_ids": [],
@@ -433,13 +446,31 @@ def playlist(
     lines = ["#EXTM3U"]
     for event in events:
         for stream_id in event["content_ids"]:
-            lines.append(f'#EXTINF:-1 group-title="{_m3u(event["category"])}",{_m3u(event["title"])}')
+            lines.append(
+                f'#EXTINF:-1 group-title="{_m3u(event["category"])}",'
+                f'{_m3u(playlist_title(event))}'
+            )
             lines.append(stream_url_template.format(content_id=stream_id, base_url=base_url))
     return "\n".join(lines) + "\n"
 
 
 def _m3u(value: object) -> str:
     return str(value).replace('"', "'").replace("\r", " ").replace("\n", " ")
+
+
+def playlist_title(event: Mapping[str, object]) -> str:
+    """Create a useful M3U label from the event name and RSS classification."""
+    title = str(event["title"]).strip()
+    category = str(event.get("category", "")).strip()
+    description = str(event.get("description", "")).strip()
+    detail = description
+    category_prefix = f"{category}."
+    if detail.casefold().startswith(category_prefix.casefold()):
+        detail = detail[len(category_prefix):].strip()
+    label = f"[{category}] {title}" if category else title
+    if detail and detail.casefold() not in title.casefold():
+        label = f"{label} — {detail}"
+    return label
 
 
 def handler(
