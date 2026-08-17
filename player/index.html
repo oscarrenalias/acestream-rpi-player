@@ -67,7 +67,14 @@
     .spinner { width: 1.35rem; height: 1.35rem; border: 3px solid #6d7887;
       border-top-color: #8bb8ff; border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    @media (max-width: 600px) { form, .picker-actions { flex-direction: column; } }
+    .mobile-player-actions { display: none; }
+    @media (max-width: 700px), (pointer: coarse) {
+      form, .picker-actions { flex-direction: column; }
+      body.has-stream .mobile-player-actions { position: fixed; z-index: 10; top: max(.75rem, env(safe-area-inset-top));
+        left: .75rem; right: .75rem; display: flex; justify-content: flex-end; gap: .5rem; }
+      .mobile-player-actions button { padding: .5rem .7rem; background: rgb(16 18 22 / 90%);
+        border: 1px solid #46505d; font-size: .85rem; }
+    }
   </style>
 </head>
 <body>
@@ -89,6 +96,12 @@
     <video id="video" class="video-js vjs-default-skin vjs-big-play-centered"
       controls playsinline preload="auto"></video>
   </main>
+
+  <nav class="mobile-player-actions" aria-label="Player actions">
+    <button id="mobile-events" type="button">Event list</button>
+    <button id="mobile-change-stream" type="button">Change</button>
+    <button id="mobile-fullscreen" type="button">Fullscreen</button>
+  </nav>
 
   <section id="event-list" hidden aria-labelledby="event-list-title">
     <div class="event-dialog" role="dialog" aria-modal="true">
@@ -122,6 +135,9 @@
     const eventListStatus = document.querySelector('#event-list-status');
     const eventListContent = document.querySelector('#event-list-content');
     const streamLoading = document.querySelector('#stream-loading');
+    const mobileEvents = document.querySelector('#mobile-events');
+    const mobileChangeStream = document.querySelector('#mobile-change-stream');
+    const mobileFullscreen = document.querySelector('#mobile-fullscreen');
     const player = videojs('video', { fill: true, liveui: true });
     let events = [];
     let eventRefreshTimer;
@@ -135,9 +151,7 @@
       }
 
       handleClick() {
-        document.body.classList.add('choosing-stream');
-        input.focus();
-        input.select();
+        chooseStream();
       }
     }
     videojs.registerComponent('ChangeStreamButton', ChangeStreamButton);
@@ -229,11 +243,16 @@
       }
     }
 
+    function eventStreams(event) {
+      if (Array.isArray(event.streams)) return event.streams;
+      return (event.content_ids || []).map((contentId) => ({ content_id: contentId, metadata: '' }));
+    }
+
     function renderEvents() {
       const selectedCategory = eventCategory.value;
       eventListContent.replaceChildren();
       const playableEvents = events.filter((event) =>
-        (!selectedCategory || event.category === selectedCategory) && event.content_ids?.length);
+        (!selectedCategory || event.category === selectedCategory) && eventStreams(event).length);
       if (!playableEvents.length) {
         eventListStatus.textContent = events.length ? 'No available streams in this category.' : 'No streams are available yet.';
         return;
@@ -250,12 +269,17 @@
         meta.textContent = [event.description, eventDate(event.starts_at)].filter(Boolean).join(' — ');
         const streams = document.createElement('div');
         streams.className = 'event-streams';
-        event.content_ids.forEach((id, index) => {
+        const eventStreamList = eventStreams(event);
+        eventStreamList.forEach((eventStream, index) => {
+          const id = eventStream.content_id;
+          const streamMetadata = eventStream.metadata?.trim();
           const stream = document.createElement('div');
           stream.className = 'event-stream';
           const playButton = document.createElement('button');
           playButton.type = 'button';
-          playButton.textContent = event.content_ids.length === 1 ? 'Play' : `Play stream ${index + 1}`;
+          playButton.textContent = streamMetadata
+            ? `Play ${streamMetadata}`
+            : eventStreamList.length === 1 ? 'Play' : `Play stream ${index + 1}`;
           playButton.addEventListener('click', async () => {
             try { await playContentId(id); }
             catch (error) { eventListStatus.textContent = error.message || 'Unable to start playback.'; }
@@ -283,7 +307,7 @@
         const data = await response.json();
         events = Array.isArray(data) ? data : data.events || [];
         const categories = [...new Set(events
-          .filter((event) => event.content_ids?.length)
+          .filter((event) => eventStreams(event).length)
           .map((event) => event.category)
           .filter(Boolean))].sort();
         const currentCategory = eventCategory.value;
@@ -320,7 +344,27 @@
       player.focus();
     }
 
+    function chooseStream() {
+      document.body.classList.add('choosing-stream');
+      input.focus();
+      input.select();
+    }
+
+    function enterFullscreen() {
+      const videoElement = player.el().querySelector('video');
+      if (videoElement?.webkitEnterFullscreen) {
+        videoElement.webkitEnterFullscreen();
+      } else if (player.requestFullscreen) {
+        player.requestFullscreen();
+      } else if (player.el().requestFullscreen) {
+        player.el().requestFullscreen();
+      }
+    }
+
     cancelChange.addEventListener('click', dismissStreamPicker);
+    mobileEvents.addEventListener('click', openEventList);
+    mobileChangeStream.addEventListener('click', chooseStream);
+    mobileFullscreen.addEventListener('click', enterFullscreen);
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       if (!eventList.hidden) closeEventList();

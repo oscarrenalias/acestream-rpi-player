@@ -29,7 +29,10 @@ class ResolverTests(unittest.TestCase):
         )
         self.assertEqual(
             streams,
-            [f"acestream://{stream_id}" for stream_id in STREAM_IDS],
+            [
+                ("English", f"acestream://{STREAM_IDS[0]}"),
+                ("Russian", f"acestream://{STREAM_IDS[1]}"),
+            ],
         )
 
 

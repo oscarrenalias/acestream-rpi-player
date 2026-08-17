@@ -5,6 +5,9 @@
 # detail pages are fetched.
 ignore:
   - baseball
+  - fencing
+  - shooting
+  - canoe
   - ice hockey
   - cricket
   - atp challenger

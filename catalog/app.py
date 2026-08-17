@@ -23,7 +23,7 @@ from xml.etree import ElementTree
 
 import yaml
 
-from catalog.resolver import resolve_streams
+from catalog.resolver import Stream, resolve_streams
 
 LOGGER = logging.getLogger("catalog")
 DEFAULT_FEED_URL = "https://cdn.livetv903.me/rss/upcoming_en.xml"
@@ -32,7 +32,8 @@ MAX_FEED_BYTES = 8 * 1024 * 1024
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 
 Event = dict[str, str]
-Resolver = Callable[[Mapping[str, str]], list[str]]
+Resolver = Callable[[Mapping[str, str]], list[Stream]]
+StreamInput = str | Stream
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,16 @@ def content_id(reference: str) -> str:
     if CONTENT_ID.fullmatch(query_id):
         return query_id.lower()
     raise ValueError(f"invalid AceStream reference: {reference!r}")
+
+
+def _stream_record(stream: StreamInput) -> Stream:
+    """Normalize a resolver result, accepting legacy bare references as empty metadata."""
+    if isinstance(stream, str):
+        return "", content_id(stream)
+    metadata, reference = stream
+    if not isinstance(metadata, str) or not isinstance(reference, str):
+        raise ValueError("stream metadata and reference must both be strings")
+    return metadata.strip(), content_id(reference)
 
 
 def load_config(path: str | Path) -> dict[str, object]:
@@ -202,7 +213,8 @@ class Catalog:
                 CREATE TABLE IF NOT EXISTS streams (
                     event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
                     content_id TEXT NOT NULL,
-                    PRIMARY KEY (event_id, content_id)
+                    metadata TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (event_id, content_id, metadata)
                 );
                 CREATE TABLE IF NOT EXISTS refresh_status (
                     name TEXT PRIMARY KEY,
@@ -220,6 +232,22 @@ class Catalog:
                 connection.execute("ALTER TABLE events ADD COLUMN last_checked_at TEXT")
             if "description" not in columns:
                 connection.execute("ALTER TABLE events ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            stream_columns = {row["name"] for row in connection.execute("PRAGMA table_info(streams)")}
+            if "metadata" not in stream_columns:
+                connection.executescript(
+                    """
+                    CREATE TABLE streams_with_metadata (
+                        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                        content_id TEXT NOT NULL,
+                        metadata TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY (event_id, content_id, metadata)
+                    );
+                    INSERT INTO streams_with_metadata(event_id, content_id, metadata)
+                    SELECT event_id, content_id, '' FROM streams;
+                    DROP TABLE streams;
+                    ALTER TABLE streams_with_metadata RENAME TO streams;
+                    """
+                )
 
     def upsert_event(self, event: Mapping[str, str]) -> None:
         now = datetime.now().astimezone().isoformat()
@@ -245,8 +273,8 @@ class Catalog:
                 ),
             )
 
-    def set_streams(self, event_url: str, stream_ids: Iterable[str]) -> None:
-        unique_ids = sorted(set(stream_ids))
+    def set_streams(self, event_url: str, streams: Iterable[StreamInput]) -> None:
+        unique_streams = list(dict.fromkeys(_stream_record(stream) for stream in streams))
         checked_at = datetime.now().astimezone().isoformat()
         with closing(self.connect()) as connection, connection:
             row = connection.execute("SELECT id FROM events WHERE event_url = ?", (event_url,)).fetchone()
@@ -255,17 +283,17 @@ class Catalog:
             event_id = row["id"]
             connection.execute("DELETE FROM streams WHERE event_id = ?", (event_id,))
             connection.executemany(
-                "INSERT INTO streams(event_id, content_id) VALUES (?, ?)",
-                ((event_id, stream_id) for stream_id in unique_ids),
+                "INSERT INTO streams(event_id, content_id, metadata) VALUES (?, ?, ?)",
+                ((event_id, content_id, metadata) for metadata, content_id in unique_streams),
             )
             connection.execute(
                 "UPDATE events SET last_checked_at = ? WHERE id = ?", (checked_at, event_id)
             )
 
-    def save(self, event: Mapping[str, str], stream_ids: Iterable[str]) -> None:
+    def save(self, event: Mapping[str, str], streams: Iterable[StreamInput]) -> None:
         """Convenience method retained for tests and one-off imports."""
         self.upsert_event(event)
-        self.set_streams(event["link"], stream_ids)
+        self.set_streams(event["link"], streams)
 
     def events_for_resolution(self, start: datetime, end: datetime) -> list[Event]:
         with closing(self.connect()) as connection:
@@ -303,9 +331,9 @@ class Catalog:
             rows = connection.execute(
                 """
                 SELECT e.id, e.title, e.event_url, e.category, e.description, e.starts_at,
-                       e.last_checked_at, s.content_id
+                       e.last_checked_at, s.content_id, s.metadata
                 FROM events e LEFT JOIN streams s ON s.event_id = e.id
-                ORDER BY e.starts_at, e.title, s.content_id
+                ORDER BY e.starts_at, e.title, s.content_id, s.metadata
                 """
             ).fetchall()
         grouped: dict[int, dict[str, object]] = {}
@@ -324,10 +352,14 @@ class Catalog:
                     "starts_at": row["starts_at"],
                     "last_checked_at": row["last_checked_at"],
                     "content_ids": [],
+                    "streams": [],
                 },
             )
             if row["content_id"] is not None:
                 event["content_ids"].append(row["content_id"])
+                event["streams"].append(
+                    {"content_id": row["content_id"], "metadata": row["metadata"]}
+                )
         return list(grouped.values())
 
     def mark_refresh(self, name: str, state: str, detail: str = "") -> None:
@@ -396,11 +428,11 @@ def resolve_active_events(
     for position, event in enumerate(events, start=1):
         try:
             LOGGER.info("[%d/%d] resolving %s", position, len(events), event["title"])
-            stream_ids = [content_id(reference) for reference in resolver(event)]
-            catalog.set_streams(event["link"], stream_ids)
+            streams = list(resolver(event))
+            catalog.set_streams(event["link"], streams)
             resolved += 1
-            streams_found += len(stream_ids)
-            LOGGER.info("[%d/%d] saved %d stream(s)", position, len(events), len(stream_ids))
+            streams_found += len(streams)
+            LOGGER.info("[%d/%d] saved %d stream(s)", position, len(events), len(streams))
         except Exception:
             LOGGER.exception("failed to resolve event %s", event["link"])
     LOGGER.info("stream refresh complete: %d/%d events checked; %d stream(s) found", resolved, len(events), streams_found)
@@ -431,7 +463,7 @@ def process_events(
         if ignored_by(event, ignore_patterns):
             continue
         try:
-            catalog.set_streams(event["link"], [content_id(item) for item in resolver(event)])
+            catalog.set_streams(event["link"], resolver(event))
             checked += 1
         except Exception:
             LOGGER.exception("failed to resolve event %s", event["link"])
@@ -445,10 +477,18 @@ def playlist(
 ) -> str:
     lines = ["#EXTM3U"]
     for event in events:
-        for stream_id in event["content_ids"]:
+        streams = event.get("streams") or [
+            {"content_id": stream_id, "metadata": ""} for stream_id in event["content_ids"]
+        ]
+        for stream in streams:
+            stream_id = stream["content_id"]
+            metadata = str(stream.get("metadata", "")).strip()
+            title = playlist_title(event)
+            if metadata:
+                title = f"{title} [{metadata}]"
             lines.append(
                 f'#EXTINF:-1 group-title="{_m3u(event["category"])}",'
-                f'{_m3u(playlist_title(event))}'
+                f'{_m3u(title)}'
             )
             lines.append(stream_url_template.format(content_id=stream_id, base_url=base_url))
     return "\n".join(lines) + "\n"

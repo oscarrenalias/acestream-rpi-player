@@ -62,9 +62,16 @@ class CatalogTests(unittest.TestCase):
         event = parse_feed(FEED)[0]
         with tempfile.TemporaryDirectory() as directory:
             catalog = Catalog(Path(directory) / "catalog.db")
-            catalog.save(event, [STREAM_ID, STREAM_ID])
+            catalog.save(event, [("English", STREAM_ID), ("Finnish", STREAM_ID)])
             self.assertEqual(len(catalog.events("athletics", "2026-08-14")), 1)
             self.assertEqual(catalog.events("Tennis"), [])
+            self.assertEqual(
+                catalog.events()[0]["streams"],
+                [
+                    {"content_id": STREAM_ID, "metadata": "English"},
+                    {"content_id": STREAM_ID, "metadata": "Finnish"},
+                ],
+            )
             rendered = playlist(
                 catalog.events(),
                 "{base_url}/ace/getstream?id={content_id}",
@@ -72,6 +79,8 @@ class CatalogTests(unittest.TestCase):
             )
         self.assertIn('group-title="Athletics",[Athletics] European Championship', rendered)
         self.assertIn(f"http://player:8080/ace/getstream?id={STREAM_ID}", rendered)
+        self.assertIn("[English]", rendered)
+        self.assertIn("[Finnish]", rendered)
 
     def test_playlist_title_adds_category_and_description_detail(self):
         self.assertEqual(
@@ -102,10 +111,35 @@ class CatalogTests(unittest.TestCase):
                     )
                     """
                 )
-            Catalog(database)
+                connection.execute(
+                    """
+                    CREATE TABLE streams (
+                        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                        content_id TEXT NOT NULL,
+                        PRIMARY KEY (event_id, content_id)
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO events(id, title, event_url, category, starts_at, updated_at, last_checked_at)
+                    VALUES (1, 'Legacy event', 'https://example.test/event/legacy', 'Other',
+                            '2026-08-14T12:30:00+03:00', '2026-08-14T12:00:00+03:00', NULL)
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO streams(event_id, content_id) VALUES (1, ?)", (STREAM_ID,)
+                )
+            catalog = Catalog(database)
             with closing(sqlite3.connect(database)) as connection:
                 columns = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
+                stream_columns = [row[1] for row in connection.execute("PRAGMA table_info(streams)")]
+            stored = catalog.events()
         self.assertIn("description", columns)
+        self.assertIn("metadata", stream_columns)
+        self.assertEqual(
+            stored[0]["streams"], [{"content_id": STREAM_ID, "metadata": ""}]
+        )
 
     def test_processing_calls_resolver_and_persists_empty_results(self):
         event = parse_feed(FEED)[0]
