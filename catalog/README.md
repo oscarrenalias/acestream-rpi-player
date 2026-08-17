@@ -7,8 +7,10 @@ are retried in later stream refreshes.
 
 Implement `resolve_streams` in `resolver.py`. It receives a mapping containing
 `title`, `link`, `category`, and timezone-aware `starts_at`, and must return a
-list containing 40-character content IDs, `acestream://` links, or HTTP URLs
-with an `id` query parameter. Invalid references are rejected.
+list of `(metadata, reference)` tuples. `reference` may be a 40-character
+content ID, an `acestream://` link, or an HTTP URL with an `id` query
+parameter. `metadata` is a short optional label such as `English`; use an
+empty string when the source provides none. Invalid references are rejected.
 
 The project uses [uv](https://docs.astral.sh/uv/) for its Python environment.
 Initialize or update the environment from the repository root with:
@@ -68,6 +70,10 @@ M3U labels include the top-level category and the remaining RSS classification:
 ```text
 [Tennis] ATP/WTA, Cincinnati — ATP/WTA Tour
 ```
+
+When resolver metadata is present, it is retained in the SQLite catalog and
+JSON API as each stream's `metadata` field, and appended to that stream's M3U
+label. This lets clients distinguish otherwise identical stream links.
 
 Configuration uses `FEED_URL`, `DATABASE_PATH`, `HOST`, `PORT`, `LOG_LEVEL`,
 and `MAX_EVENTS`. `--max-events` overrides the environment value and is for
@@ -152,5 +158,5 @@ uv run python -m unittest discover -v
 ```
 
 Replace or add sanitized HTML fixtures as page layouts evolve. The expected
-result should remain a list of AceStream references; the processing pipeline
-performs final content-ID validation.
+result should be `(metadata, AceStream reference)` tuples; the processing
+pipeline performs final content-ID validation.

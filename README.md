@@ -39,23 +39,33 @@ start screen and in the player controls. The list shows only catalog events
 with at least one resolved stream; the direct AceStream ID/URL input remains
 available for manual playback.
 
-## Test player changes locally
+## Test changes locally
 
-The local Compose override builds the player from the current checkout, while
-leaving the AceStream engine and catalog running. After changing files under
-`player/`, rebuild and replace only that container:
+The local Compose override builds the catalog and player from the current
+checkout, while leaving the AceStream engine running.
+
+After changing files under `player/`, rebuild and replace only that container:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --detach --build --no-deps --force-recreate player
 ```
 
 Then refresh `http://raspberrypi.local:8080/` (a hard refresh may be needed).
-This does not pull or publish an image, and it does not affect the catalog
-database. Return to the published player image with:
+After changing files under `catalog/`, rebuild and replace the catalog:
 
 ```bash
-docker compose pull player
-docker compose up --detach --no-deps --force-recreate player
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --detach --build --no-deps --force-recreate catalog
+```
+
+The catalog scheduler starts a discovery and stream refresh immediately. Follow
+its progress with `docker compose logs --follow catalog`.
+
+Neither command pulls or publishes an image, and both retain the catalog
+database. Return to published images with:
+
+```bash
+docker compose pull catalog player
+docker compose up --detach --no-deps --force-recreate catalog player
 ```
 
 ## Install as a system service
