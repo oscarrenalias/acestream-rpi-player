@@ -1,7 +1,14 @@
-# Development-only override. It builds the player from this checkout instead
-# of pulling its published image. Keep the normal docker-compose.yml unchanged
+# Development-only override. It builds changed services from this checkout
+# instead of pulling their published images. Keep docker-compose.yml unchanged
 # for production/systemd use.
 services:
+  catalog:
+    image: acestream-catalog:local
+    build:
+      context: .
+      dockerfile: catalog/Dockerfile
+    pull_policy: build
+
   player:
     image: acestream-player:local
     build:
