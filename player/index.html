@@ -55,13 +55,17 @@
     .event-title { margin: 0 0 .25rem; font-weight: 650; }
     .event-meta { margin: 0 0 .6rem; color: #aeb7c2; font-size: .9rem; }
     .event-streams { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .event-stream { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+    .event-stream { display: flex; flex-wrap: wrap; align-items: center; }
     .event-stream button { padding: .45rem .75rem; }
-    .vlc-menu { position: relative; }
+    .stream-actions { display: flex; align-items: stretch; }
+    .event-stream .stream-play-button { border-radius: .4rem 0 0 .4rem; }
+    .vlc-menu { position: relative; display: flex; }
     .event-stream .vlc-menu-trigger { min-width: 2.5rem; min-height: 2.35rem; padding: .3rem .55rem;
-      background: #303844; font-size: 1rem; font-weight: 700; }
-    .vlc-menu-panel { position: absolute; z-index: 25; top: calc(100% + .35rem); right: 0;
-      min-width: 10.5rem; padding: .3rem; border: 1px solid #46505d; border-radius: .4rem;
+      border-left: 1px solid #596473; border-radius: 0 .4rem .4rem 0; background: #303844;
+      font-size: 1rem; font-weight: 700; }
+    .vlc-menu-panel { position: absolute; z-index: 25; top: calc(100% + .35rem); left: 0;
+      width: max-content; max-width: calc(100vw - 3rem); min-width: 10.5rem; padding: .3rem;
+      border: 1px solid #46505d; border-radius: .4rem;
       background: #191d23; box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / 45%); }
     .vlc-menu-panel[hidden] { display: none; }
     .vlc-menu-panel button { display: block; width: 100%; padding: .45rem .55rem; border-radius: .25rem;
@@ -263,6 +267,29 @@
       openVlcMenu = undefined;
     }
 
+    function positionVlcMenu(menu) {
+      const margin = 4;
+      const viewport = eventListContent.getBoundingClientRect();
+      const leftLimit = viewport.left + margin;
+      const rightLimit = viewport.right - margin;
+      const topLimit = viewport.top + margin;
+      const bottomLimit = viewport.bottom - margin;
+      menu.style.top = '';
+      menu.style.bottom = '';
+      menu.style.transform = '';
+      let bounds = menu.getBoundingClientRect();
+      if (bounds.bottom > bottomLimit) {
+        menu.style.top = 'auto';
+        menu.style.bottom = 'calc(100% + .35rem)';
+        bounds = menu.getBoundingClientRect();
+      }
+      let offset = 0;
+      if (bounds.right > rightLimit) offset = rightLimit - bounds.right;
+      if (bounds.left + offset < leftLimit) offset = leftLimit - bounds.left;
+      if (bounds.top < topLimit) menu.style.transform = `translate(${offset}px, ${topLimit - bounds.top}px)`;
+      else if (offset) menu.style.transform = `translateX(${offset}px)`;
+    }
+
     async function copyVlcLink(id) {
       const link = vlcLink(id);
       try {
@@ -318,8 +345,11 @@
           const streamMetadata = eventStream.metadata?.trim();
           const stream = document.createElement('div');
           stream.className = 'event-stream';
+          const actions = document.createElement('div');
+          actions.className = 'stream-actions';
           const playButton = document.createElement('button');
           playButton.type = 'button';
+          playButton.className = 'stream-play-button';
           playButton.textContent = streamMetadata || 'Play';
           playButton.addEventListener('click', async () => {
             try { await playContentId(id); }
@@ -345,6 +375,7 @@
             }
             closeVlcMenu();
             menu.hidden = false;
+            positionVlcMenu(menu);
             vlcButton.setAttribute('aria-expanded', 'true');
             openVlcMenu = { panel: menu, trigger: vlcButton };
           });
@@ -366,7 +397,8 @@
           });
           menu.append(copyButton);
           vlcMenu.append(vlcButton, menu);
-          stream.append(playButton, vlcMenu);
+          actions.append(playButton, vlcMenu);
+          stream.append(actions);
           streams.append(stream);
         });
         item.append(title, meta, streams);
