@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import threading
+import uuid
 from contextlib import closing
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
@@ -17,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from string import Formatter
 from typing import Callable, Iterable, Mapping, Sequence
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -490,8 +491,17 @@ def playlist(
                 f'#EXTINF:-1 group-title="{_m3u(event["category"])}",'
                 f'{_m3u(title)}'
             )
-            lines.append(stream_url_template.format(content_id=stream_id, base_url=base_url))
+            stream_url = stream_url_template.format(content_id=stream_id, base_url=base_url)
+            lines.append(_with_playback_pid(stream_url, uuid.uuid4().hex))
     return "\n".join(lines) + "\n"
+
+
+def _with_playback_pid(stream_url: str, pid: str) -> str:
+    """Return a stream URL with exactly one per-playback ``pid`` parameter."""
+    parsed = urlsplit(stream_url)
+    query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "pid"]
+    query.append(("pid", pid))
+    return urlunsplit(parsed._replace(query=urlencode(query)))
 
 
 def _m3u(value: object) -> str:
@@ -539,6 +549,7 @@ def handler(
                         self._public_base_url(),
                     ).encode(),
                     "audio/x-mpegurl",
+                    {"Cache-Control": "no-store"},
                 )
             elif parsed.path == "/api/events":
                 self._send(HTTPStatus.OK, json.dumps(catalog.events(category, on_date)).encode(), "application/json")
@@ -559,10 +570,18 @@ def handler(
             else:
                 self._send(HTTPStatus.NOT_FOUND, b"not found\n", "text/plain")
 
-        def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
+        def _send(
+            self,
+            status: HTTPStatus,
+            body: bytes,
+            content_type: str,
+            headers: Mapping[str, str] | None = None,
+        ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 

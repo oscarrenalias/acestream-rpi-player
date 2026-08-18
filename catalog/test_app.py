@@ -4,12 +4,14 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from catalog.app import (
     Catalog,
     RefreshSettings,
     content_id,
     discover_events,
+    handler,
     ignored_by,
     load_event_tls_verify,
     load_ignore_patterns,
@@ -81,6 +83,58 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(f"http://player:8080/ace/getstream?id={STREAM_ID}", rendered)
         self.assertIn("[English]", rendered)
         self.assertIn("[Finnish]", rendered)
+
+    def test_playlist_assigns_distinct_fresh_playback_pids(self):
+        event = parse_feed(FEED)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = Catalog(Path(directory) / "catalog.db")
+            catalog.save(event, [("English", STREAM_ID), ("Finnish", STREAM_ID)])
+            first = playlist(
+                catalog.events(),
+                "{base_url}/ace/getstream?id={content_id}",
+                "http://player:8080",
+            )
+            second = playlist(
+                catalog.events(),
+                "{base_url}/ace/getstream?id={content_id}",
+                "http://player:8080",
+            )
+
+        def pids(rendered):
+            urls = [line for line in rendered.splitlines() if line.startswith("http://")]
+            return [parse_qs(urlparse(url).query)["pid"][0] for url in urls]
+
+        first_pids = pids(first)
+        second_pids = pids(second)
+        self.assertEqual(len(first_pids), 2)
+        self.assertEqual(len(set(first_pids)), 2)
+        self.assertTrue(set(first_pids).isdisjoint(second_pids))
+
+    def test_playlist_response_disables_caching(self):
+        event = parse_feed(FEED)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = Catalog(Path(directory) / "catalog.db")
+            catalog.save(event, [("", STREAM_ID)])
+            request_handler = handler(
+                catalog,
+                RefreshSettings(),
+                "{base_url}/ace/getstream?id={content_id}",
+            )
+            response = {}
+            request = type("Request", (), {})()
+            request.path = "/playlist.m3u"
+            request.headers = {"Host": "player:8080"}
+            request._public_base_url = lambda: "http://player:8080"
+            request._send = lambda status, body, content_type, headers=None: response.update(
+                status=status,
+                body=body.decode(),
+                content_type=content_type,
+                headers=headers or {},
+            )
+            request_handler.do_GET(request)
+        self.assertEqual(response["headers"], {"Cache-Control": "no-store"})
+        self.assertIn(f"id={STREAM_ID}", response["body"])
+        self.assertIn("pid=", response["body"])
 
     def test_playlist_title_adds_category_and_description_detail(self):
         self.assertEqual(

@@ -185,12 +185,29 @@
       throw new Error('Enter a 40-character AceStream content ID or a URL containing one.');
     }
 
+    function playbackPid() {
+      if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+      const bytes = new Uint8Array(16);
+      if (window.crypto?.getRandomValues) {
+        window.crypto.getRandomValues(bytes);
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    function streamUrl(path, id) {
+      const url = new URL(path, window.location.origin);
+      url.searchParams.set('id', id);
+      url.searchParams.set('pid', playbackPid());
+      return url.pathname + url.search;
+    }
+
     async function playContentId(id) {
       status.textContent = 'Connecting to stream…';
       streamLoading.hidden = false;
       try {
         player.src({
-          src: `/ace/manifest.m3u8?id=${encodeURIComponent(id)}`,
+          src: streamUrl('/ace/manifest.m3u8', id),
           type: 'application/x-mpegURL'
         });
         await player.play();
@@ -217,7 +234,7 @@
     }
 
     function vlcLink(id) {
-      return `${window.location.origin}/ace/getstream?id=${encodeURIComponent(id)}`;
+      return new URL(streamUrl('/ace/getstream', id), window.location.origin).href;
     }
 
     async function copyVlcLink(id) {
