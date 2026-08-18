@@ -57,8 +57,16 @@
     .event-streams { display: flex; flex-wrap: wrap; gap: .5rem; }
     .event-stream { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
     .event-stream button { padding: .45rem .75rem; }
-    .event-stream .copy-vlc-link { padding: .3rem .45rem; background: #303844;
-      font-size: .78rem; font-weight: 550; }
+    .vlc-menu { position: relative; }
+    .event-stream .vlc-menu-trigger { min-width: 2.5rem; min-height: 2.35rem; padding: .3rem .55rem;
+      background: #303844; font-size: 1rem; font-weight: 700; }
+    .vlc-menu-panel { position: absolute; z-index: 25; top: calc(100% + .35rem); right: 0;
+      min-width: 10.5rem; padding: .3rem; border: 1px solid #46505d; border-radius: .4rem;
+      background: #191d23; box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / 45%); }
+    .vlc-menu-panel[hidden] { display: none; }
+    .vlc-menu-panel button { display: block; width: 100%; padding: .45rem .55rem; border-radius: .25rem;
+      background: transparent; text-align: left; font-size: .82rem; font-weight: 550; }
+    .vlc-menu-panel button:hover, .vlc-menu-panel button:focus { background: #303844; }
     #stream-loading { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
       background: rgb(0 0 0 / 58%); }
     #stream-loading[hidden] { display: none; }
@@ -141,6 +149,7 @@
     const player = videojs('video', { fill: true, liveui: true });
     let events = [];
     let eventRefreshTimer;
+    let openVlcMenu;
 
     const Button = videojs.getComponent('Button');
     class ChangeStreamButton extends Button {
@@ -237,6 +246,23 @@
       return new URL(streamUrl('/ace/getstream', id), window.location.origin).href;
     }
 
+    function supportsVlcDeepLink() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    function openVlc(id) {
+      const link = `vlc-x-callback://x-callback-url/stream?${new URLSearchParams({ url: vlcLink(id) })}`;
+      window.location.assign(link);
+    }
+
+    function closeVlcMenu() {
+      if (!openVlcMenu) return;
+      openVlcMenu.panel.hidden = true;
+      openVlcMenu.trigger.setAttribute('aria-expanded', 'false');
+      openVlcMenu = undefined;
+    }
+
     async function copyVlcLink(id) {
       const link = vlcLink(id);
       try {
@@ -294,21 +320,53 @@
           stream.className = 'event-stream';
           const playButton = document.createElement('button');
           playButton.type = 'button';
-          playButton.textContent = streamMetadata
-            ? `Play ${streamMetadata}`
-            : eventStreamList.length === 1 ? 'Play' : `Play stream ${index + 1}`;
+          playButton.textContent = streamMetadata || 'Play';
           playButton.addEventListener('click', async () => {
             try { await playContentId(id); }
             catch (error) { eventListStatus.textContent = error.message || 'Unable to start playback.'; }
           });
+          const vlcMenu = document.createElement('div');
+          vlcMenu.className = 'vlc-menu';
+          const vlcButton = document.createElement('button');
+          vlcButton.type = 'button';
+          vlcButton.className = 'vlc-menu-trigger';
+          vlcButton.textContent = '▾';
+          vlcButton.setAttribute('aria-label', 'VLC options');
+          vlcButton.setAttribute('aria-expanded', 'false');
+          const menu = document.createElement('div');
+          menu.className = 'vlc-menu-panel';
+          menu.setAttribute('role', 'menu');
+          menu.hidden = true;
+          vlcButton.addEventListener('click', (clickEvent) => {
+            clickEvent.stopPropagation();
+            if (openVlcMenu?.panel === menu) {
+              closeVlcMenu();
+              return;
+            }
+            closeVlcMenu();
+            menu.hidden = false;
+            vlcButton.setAttribute('aria-expanded', 'true');
+            openVlcMenu = { panel: menu, trigger: vlcButton };
+          });
+          if (supportsVlcDeepLink()) {
+            const openButton = document.createElement('button');
+            openButton.type = 'button';
+            openButton.textContent = 'Open in VLC';
+            openButton.setAttribute('role', 'menuitem');
+            openButton.addEventListener('click', () => openVlc(id));
+            menu.append(openButton);
+          }
           const copyButton = document.createElement('button');
           copyButton.type = 'button';
-          copyButton.className = 'copy-vlc-link';
-          copyButton.textContent = 'VLC';
-          copyButton.title = 'Copy VLC link';
-          copyButton.setAttribute('aria-label', 'Copy VLC link');
-          copyButton.addEventListener('click', () => copyVlcLink(id));
-          stream.append(playButton, copyButton);
+          copyButton.textContent = 'Copy VLC link';
+          copyButton.setAttribute('role', 'menuitem');
+          copyButton.addEventListener('click', () => {
+            closeVlcMenu();
+            copyVlcLink(id);
+          });
+          menu.append(copyButton);
+          vlcMenu.append(vlcButton, menu);
+          stream.append(playButton, vlcMenu);
           streams.append(stream);
         });
         item.append(title, meta, streams);
@@ -384,9 +442,14 @@
     mobileFullscreen.addEventListener('click', enterFullscreen);
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
+      if (openVlcMenu) {
+        closeVlcMenu();
+        return;
+      }
       if (!eventList.hidden) closeEventList();
       else if (document.body.classList.contains('choosing-stream')) dismissStreamPicker();
     });
+    document.addEventListener('click', closeVlcMenu);
 
     player.on('playing', () => {
       status.textContent = '';
